@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image to Reflowed PDF</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/tesseract.js@v4.1.1/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col items-center justify-center p-4 font-sans text-gray-800">
+
+    <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-md">
+        <h1 class="text-2xl font-bold text-center mb-4 text-blue-600">Reflow PDF Generator</h1>
+        
+        <p class="text-sm text-gray-500 mb-6 text-center">Upload up to 200 images. We'll extract the text and flow it into a single PDF.</p>
+
+        <input type="file" id="imageInput" multiple accept="image/*" class="block w-full text-sm text-gray-500
+            file:mr-4 file:py-2 file:px-4
+            file:rounded-full file:border-0
+            file:text-sm file:font-semibold
+            file:bg-blue-50 file:text-blue-700
+            hover:file:bg-blue-100 mb-4 cursor-pointer"
+        />
+
+        <button id="convertBtn" class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+            Start Conversion
+        </button>
+
+        <div id="progressContainer" class="hidden mt-6">
+            <div class="flex justify-between text-sm font-medium mb-1">
+                <span id="statusText">Initializing Engine...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+        </div>
+        
+        <div id="errorOutput" class="hidden mt-4 p-3 bg-red-100 text-red-700 text-xs rounded-lg break-words"></div>
+    </div>
+
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const convertBtn = document.getElementById('convertBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const statusText = document.getElementById('statusText');
+        const progressBar = document.getElementById('progressBar');
+        const progressPercent = document.getElementById('progressPercent');
+        const errorOutput = document.getElementById('errorOutput');
+
+        convertBtn.addEventListener('click', async () => {
+            const files = imageInput.files;
+            
+            if (files.length === 0) {
+                alert("Please select some images first!");
+                return;
+            }
+
+            convertBtn.disabled = true;
+            progressContainer.classList.remove('hidden');
+            errorOutput.classList.add('hidden');
+            errorOutput.innerText = '';
+            
+            try {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                const margin = 15;
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const pageHeight = doc.internal.pageSize.getHeight();
+                const maxLineWidth = pageWidth - (margin * 2);
+                let cursorY = margin;
+                const lineHeight = 6;
+
+                statusText.innerText = "Warming up OCR engine...";
+                const worker = await Tesseract.createWorker('eng');
+
+                for (let i = 0; i < files.length; i++) {
+                    statusText.innerText = `Extracting text from image ${i + 1} of ${files.length}...`;
+                    const progress = Math.round(((i) / files.length) * 100);
+                    progressBar.style.width = `${progress}%`;
+                    progressPercent.innerText = `${progress}%`;
+
+                    const ret = await worker.recognize(files[i]);
+                    const extractedText = ret.data.text.trim();
+
+                    if (extractedText) {
+                        const lines = doc.splitTextToSize(extractedText, maxLineWidth);
+                        
+                        for (let j = 0; j < lines.length; j++) {
+                            if (cursorY + lineHeight > pageHeight - margin) {
+                                doc.addPage();
+                                cursorY = margin;
+                            }
+                            doc.text(lines[j], margin, cursorY);
+                            cursorY += lineHeight;
+                        }
+                        cursorY += lineHeight; 
+                    }
+                }
+
+                await worker.terminate();
+
+                statusText.innerText = "Generating PDF...";
+                progressBar.style.width = "100%";
+                progressPercent.innerText = "100%";
+                
+                doc.save('reflowed_document.pdf');
+                statusText.innerText = "Done! PDF Downloaded.";
+
+            } catch (error) {
+                console.error(error);
+                statusText.innerText = "Error occurred.";
+                errorOutput.innerText = `Log: ${error.message || error}`;
+                errorOutput.classList.remove('hidden');
+            } finally {
+                convertBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
